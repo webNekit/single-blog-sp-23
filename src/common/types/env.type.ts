@@ -1,4 +1,4 @@
-export interface EnvConfig {
+export interface IEnvConfig {
   NODE_ENV: 'development' | 'production' | 'test';
   PORT: number;
   BASE_URL: string;
