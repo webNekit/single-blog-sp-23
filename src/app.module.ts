@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { envConfig } from './common/config/env.config';
+import { AuthModule } from './modules/auth/auth.module';
 import * as path from 'path';
 import * as process from 'node:process';
 
@@ -31,6 +32,7 @@ import * as process from 'node:process';
       },
     }),
     PrismaModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
