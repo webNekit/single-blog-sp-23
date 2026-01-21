@@ -1,9 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload, TokenPair } from './types/index.type';
-import { AppRole } from '../../common/types/shared.type';
+import { RequestWithUser } from '../../common/types/shared.type';
+import { Response } from 'express';
+import { AuthResponseConstant } from './constants/auth-response.constant';
+import * as argon2 from 'argon2';
+import { Role } from '@prisma/client';
+import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
@@ -13,7 +18,91 @@ export class AuthService {
     private readonly prismaService: PrismaService,
   ) {}
 
-  private async generateToken(userId: string, email: string, role: AppRole): Promise<TokenPair> {
+  async register(dto: RegisterDto, res: Response): Promise<AuthResponseConstant> {
+    const existing = await this.prismaService.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (existing) {
+      throw new ConflictException('Пользователь с таким email уже существует!');
+    }
+
+    const user = await this.prismaService.user.create({
+      data: {
+        email: dto.email,
+        fullName: dto.fullName,
+        password: await argon2.hash(dto.password),
+        role: Role.USER,
+      },
+    });
+
+    const generatedToken = await this.generateToken(user.id, user.email, user.role);
+    await this.updateRefreshTokenInDB(user.id, generatedToken.refreshToken);
+    this.setTokenCookies(res, generatedToken);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  async refresh(request: RequestWithUser, res: Response): Promise<AuthResponseConstant> {
+    const refreshToken = request.cookies?.refresh_token;
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh-токен не найден!');
+    }
+
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Не валидный refresh-токен');
+    }
+
+    const user = await this.prismaService.user.findUnique({
+      where: { id: payload.sub },
+    });
+
+    if (!user || !user.refreshToken) {
+      throw new UnauthorizedException('Такого пользователя не существует!');
+    }
+
+    const isValid = await argon2.verify(user.refreshToken, refreshToken);
+    if (!isValid) {
+      throw new UnauthorizedException('Неверный refresh-токен');
+    }
+
+    const token = await this.generateToken(user.id, user.email, user.role);
+    await this.updateRefreshTokenInDB(user.id, token.refreshToken);
+    this.setTokenCookies(res, token);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  private async updateRefreshTokenInDB(userId: string, refreshToken: string | null) {
+    const hashToken = refreshToken ? await argon2.hash(refreshToken) : null;
+    await this.prismaService.user.update({
+      where: { id: userId },
+      data: { refreshToken: hashToken },
+    });
+  }
+
+  private async generateToken(userId: string, email: string, role: Role): Promise<TokenPair> {
     const payload: JwtPayload = { sub: userId, email: email, role: role };
     const [accessToken, refreshToken] = await Promise.all([
       // access
@@ -30,6 +119,32 @@ export class AuthService {
 
     return { accessToken, refreshToken };
 
+  }
+
+  private setTokenCookies(res: Response, pair: TokenPair) {
+    const isSecure = this.configService.get<boolean>('COOKIE_SECURE') ?? false;
+    const sameSite = this.configService.get<'lax' | 'strict' | 'none'>('COOKIE_SAMESITE') ?? 'lax';
+
+    res.cookie('access_token', pair.accessToken, {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: sameSite,
+      path: '/',
+      maxAge: this.parseDuration(this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') || '15m')
+    });
+
+    res.cookie('refresh_token', pair.refreshToken, {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: sameSite,
+      path: '/api/auth/refresh',
+      maxAge: this.parseDuration(this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d')
+    });
+  }
+
+  private clearTokenCookies(res: Response) {
+    res.clearCookie('access_token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/api/auth/refresh' });
   }
 
   private parseDuration(duration: string): number {

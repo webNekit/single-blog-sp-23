@@ -1,4 +1,4 @@
-import { AppRole } from '../../../common/types/shared.type';
+import { Role } from '@prisma/client';
 
 export type TokenPair = {
   accessToken: string;
@@ -8,5 +8,5 @@ export type TokenPair = {
 export type JwtPayload = {
   sub: string;
   email: string;
-  role: AppRole;
+  role: Role;
 };
