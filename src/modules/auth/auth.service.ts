@@ -9,6 +9,7 @@ import { AuthResponseConstant } from './constants/auth-response.constant';
 import * as argon2 from 'argon2';
 import { Role } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -49,6 +50,37 @@ export class AuthService {
         createdAt: user.createdAt,
       },
     };
+  }
+
+  async login(dto: LoginDto, res: Response): Promise<AuthResponseConstant> {
+    const user = await this.prismaService.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (!user || !(await argon2.verify(user.password, dto.password))) {
+      throw new UnauthorizedException('Неверный логин и/или пароль');
+    }
+
+    const token = await this.generateToken(user.id, user.email, user.role);
+    await this.updateRefreshTokenInDB(user.id, token.refreshToken);
+    this.setTokenCookies(res, token);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  async logout(user: RequestWithUser['user'], res: Response): Promise<{ message: string }> {
+    await this.updateRefreshTokenInDB(user.userId, null);
+    this.clearTokenCookies(res);
+
+    return { message: 'Вы успешно вышли из системы!' };
   }
 
   async refresh(request: RequestWithUser, res: Response): Promise<AuthResponseConstant> {
