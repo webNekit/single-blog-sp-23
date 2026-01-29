@@ -11,7 +11,7 @@ export enum SortDirection {
 
 export interface NewsQueryParams {
   categoryId?: string;
-  published?: boolean;
+  isActive?: boolean;
   page: number;
   limit: number;
   sortBy: NewsSortField;
