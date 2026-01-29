@@ -8,6 +8,7 @@ import { envConfig } from './common/config/env.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { CategoriesModule } from './modules/categories/categories.module';
+import { NewsModule } from './modules/news/news.module';
 import * as path from 'path';
 import * as process from 'node:process';
 
@@ -37,6 +38,7 @@ import * as process from 'node:process';
     AuthModule,
     UsersModule,
     CategoriesModule,
+    NewsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -120,5 +120,17 @@ export class CategoriesService {
     return { category: category };
   }
 
-  // async remove(id: string): Promise<{ categories: NewsCategoriesResponse }> {}
+  async remove(id: string): Promise<{ message: string }> {
+    const existing = await this.prismaService.category.findUnique({ where: { id: id } });
+
+    if (!existing) {
+      throw new NotFoundException(`Категория с id ${id} не найдена`);
+    }
+
+    await this.prismaService.category.delete({
+      where: { id: existing.id },
+    });
+
+    return { message: 'Категория успешно удалена!' };
+  }
 }
