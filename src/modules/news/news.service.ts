@@ -1,13 +1,22 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
-import { NewsItemResponse, NewsListResponse, NewsQueryParams } from './types/index.type';
+import {
+  NewsItemResponse,
+  NewsListResponse,
+  NewsQueryParams,
+} from './types/index.type';
 import { CreateNewsDto } from './dto/create-news.dto';
 import { NEWS_DEFAULTS, NEWS_ERRORS } from './constants/index.constant';
 import { getImagePublicUrl } from '../../common/utils/file-upload.util';
 import { generateSlug } from '../../common/utils/slug.util';
 import { UpdateNewsDto } from './dto/update-news.dto';
 import { Prisma } from '@prisma/client';
+import { string } from 'joi';
 
 @Injectable()
 export class NewsService {
@@ -63,16 +72,45 @@ export class NewsService {
     };
   }
 
-  async create(dto: CreateNewsDto, file: Express.Multer.File | undefined, authorId: string): Promise<{ news: NewsItemResponse }> {
+  async findOne(slug: string): Promise<{ news: NewsItemResponse }> {
+    const news = await this.prismaService.news.findUnique({
+      where: { slug: slug },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        content: true,
+        imageUrl: true,
+        isActive: true,
+        createdAt: true,
+        user: { select: { id: true, email: true, fullName: true } },
+        category: { select: { id: true, title: true, slug: true } },
+      },
+    });
+
+    if (!news || !news.isActive) {
+      throw new NotFoundException('Запись не найдена');
+    }
+
+    return { news: news };
+  }
+
+  async create(
+    dto: CreateNewsDto,
+    file: Express.Multer.File | undefined,
+    authorId: string,
+  ): Promise<{ news: NewsItemResponse }> {
     if (!file) {
       throw new BadRequestException(NEWS_ERRORS.IMAGE_REQUIRED_ON_CREATE);
     }
 
     const imageUrl = getImagePublicUrl(file.filename, this.configService);
 
-    const categoryExists = dto.categoryId ? await this.prismaService.category.findUnique({
-      where: { id: dto.categoryId },
-    }) : null;
+    const categoryExists = dto.categoryId
+      ? await this.prismaService.category.findUnique({
+          where: { id: dto.categoryId },
+        })
+      : null;
 
     if (dto.categoryId && !categoryExists) {
       throw new BadRequestException(NEWS_ERRORS.CATEGORY_NOT_FOUND);
@@ -96,7 +134,11 @@ export class NewsService {
     return { news: news };
   }
 
-  async update(id: string, dto: UpdateNewsDto, file: Express.Multer.File | undefined): Promise<{ updated: NewsItemResponse }> {
+  async update(
+    id: string,
+    dto: UpdateNewsDto,
+    file: Express.Multer.File | undefined,
+  ): Promise<{ updated: NewsItemResponse }> {
     const existing = await this.prismaService.news.findUnique({
       where: { id: id },
       include: { user: true },
@@ -140,5 +182,16 @@ export class NewsService {
     });
 
     return { updated: updated };
+  }
+
+  async remove(id: string): Promise<{ message: string }> {
+    const news = await this.prismaService.news.findUnique({ where: { id } });
+
+    if (!news) {
+      throw new NotFoundException('Запись не найдена');
+    }
+
+    await this.prismaService.news.delete({ where: { id: news.id } });
+    return { message: 'Запись успешно удалена!' };
   }
 }

@@ -97,14 +97,10 @@ export class CategoriesService {
       throw new NotFoundException(`Категория с id ${id} не найдена!`);
     }
 
-    const data: Partial<Prisma.CategoryUpdateInput> = {};
-
-    if (dto.title) data.title = dto.title;
-    if (dto.slug) {
-      data.slug = dto.slug;
-    } else if (dto.title !== undefined) {
-      data.slug = generateSlug(dto.title);
-    }
+    const data: Partial<Prisma.CategoryUpdateInput> = {
+      title: dto.title,
+      slug: dto.slug || (dto.title ? generateSlug(dto.title) : undefined),
+    };
 
     const category = await this.prismaService.category.update({
       where: { id: existing.id },
